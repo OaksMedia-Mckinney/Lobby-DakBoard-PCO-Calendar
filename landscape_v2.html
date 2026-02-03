@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Church Calendar - Landscape</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: white;
+            padding: 40px;
+            color: #333;
+        }
+
+        .calendar-container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .events-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+            gap: 35px;
+        }
+
+        .event-card {
+            display: flex;
+            align-items: flex-start;
+            padding: 25px;
+            background: white;
+        }
+
+        .date-box {
+            flex-shrink: 0;
+            width: 100px;
+            height: 100px;
+            border: 4px solid black;
+            border-radius: 14px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin-right: 25px;
+        }
+
+        .date-month {
+            font-size: 16px;
+            font-weight: 700;
+            color: #ff7700;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+        }
+
+        .date-day {
+            font-size: 40px;
+            font-weight: 700;
+            color: black;
+            line-height: 1;
+        }
+
+        .event-details {
+            flex: 1;
+        }
+
+        .event-title {
+            font-size: 26px;
+            font-weight: 700;
+            color: black;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+        }
+
+        .event-description {
+            font-size: 16px;
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+            color: #666;
+        }
+
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: #ff0000;
+            font-size: 16px;
+        }
+
+        .no-events {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-size: 18px;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 900px) {
+            .events-grid {
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            }
+        }
+
+        @media (min-width: 1200px) {
+            .events-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="calendar-container" id="calendar">
+        <div class="loading">Loading events...</div>
+    </div>
+
+    <script>
+        const WORKER_URL = 'https://mute-waterfall-917d.media-75c.workers.dev';
+
+        async function fetchEvents() {
+            try {
+                const response = await fetch(WORKER_URL);
+
+                if (!response.ok) {
+                    throw new Error(`Worker Error: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                displayEvents(data.data, data.included);
+            } catch (error) {
+                console.error('Error fetching events:', error);
+                document.getElementById('calendar').innerHTML = `
+                    <div class="error">
+                        Unable to load events.<br><br>
+                        Error: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        function displayEvents(instances, includedEvents) {
+            const container = document.getElementById('calendar');
+
+            if (!instances || instances.length === 0) {
+                container.innerHTML = '<div class="no-events">No upcoming events</div>';
+                return;
+            }
+
+            // Create a map of events by ID for quick lookup
+            const eventsMap = {};
+            if (includedEvents) {
+                includedEvents.forEach(event => {
+                    eventsMap[event.id] = event;
+                });
+            }
+
+            // Filter out birthdays
+            const filteredInstances = instances.filter(instance => {
+                const eventId = instance.relationships?.event?.data?.id;
+                const event = eventsMap[eventId];
+                const eventName = event?.attributes?.name || '';
+                
+                // Exclude if name contains "birthday" (case insensitive)
+                return !eventName.toLowerCase().includes('birthday');
+            });
+
+            if (filteredInstances.length === 0) {
+                container.innerHTML = '<div class="no-events">No upcoming events (birthdays excluded)</div>';
+                return;
+            }
+
+            const eventsHTML = filteredInstances.map(instance => {
+                const startDate = new Date(instance.attributes.starts_at);
+                const month = startDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+                const day = startDate.getDate();
+                
+                // Get the event details from included data
+                const eventId = instance.relationships?.event?.data?.id;
+                const event = eventsMap[eventId];
+                
+                const title = event?.attributes?.name || 'Untitled Event';
+                let description = event?.attributes?.summary || instance.attributes.location || 'Event details coming soon';
+                
+                // Only show first sentence
+                const firstSentence = description.split(/[.!?]/)[0];
+                description = firstSentence ? firstSentence.trim() + (firstSentence.match(/[.!?]/) ? '' : '.') : description;
+
+                return `
+                    <div class="event-card">
+                        <div class="date-box">
+                            <div class="date-month">${month}</div>
+                            <div class="date-day">${day}</div>
+                        </div>
+                        <div class="event-details">
+                            <div class="event-title">${title}</div>
+                            <div class="event-description">${description}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = `<div class="events-grid">${eventsHTML}</div>`;
+        }
+
+        // Fetch events on page load
+        fetchEvents();
+
+        // Auto-refresh every 15 minutes (900000 ms)
+        setInterval(fetchEvents, 900000);
+    </script>
+</body>
+</html>
