@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Church Calendar</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: white;
+            padding: 40px 20px;
+            color: #333;
+        }
+
+        .calendar-container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .event-card {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 20px;
+            padding: 20px;
+            background: white;
+        }
+
+        .date-box {
+            flex-shrink: 0;
+            width: 80px;
+            height: 80px;
+            border: 3px solid black;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin-right: 20px;
+        }
+
+        .date-month {
+            font-size: 14px;
+            font-weight: 700;
+            color: #ff7700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .date-day {
+            font-size: 32px;
+            font-weight: 700;
+            color: black;
+            line-height: 1;
+        }
+
+        .event-details {
+            flex: 1;
+        }
+
+        .event-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: black;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .event-description {
+            font-size: 14px;
+            color: #666;
+            line-height: 1.4;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+            color: #666;
+        }
+
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: #ff0000;
+            font-size: 16px;
+        }
+
+        .no-events {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div class="calendar-container" id="calendar">
+        <div class="loading">Loading events...</div>
+    </div>
+
+    <script>
+        const WORKER_URL = 'https://mute-waterfall-917d.media-75c.workers.dev';
+
+        async function fetchEvents() {
+            try {
+                const response = await fetch(WORKER_URL);
+
+                if (!response.ok) {
+                    throw new Error(`Worker Error: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                displayEvents(data.data, data.included);
+            } catch (error) {
+                console.error('Error fetching events:', error);
+                document.getElementById('calendar').innerHTML = `
+                    <div class="error">
+                        Unable to load events.<br><br>
+                        Error: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        function displayEvents(instances, includedEvents) {
+            const container = document.getElementById('calendar');
+
+            if (!instances || instances.length === 0) {
+                container.innerHTML = '<div class="no-events">No upcoming events</div>';
+                return;
+            }
+
+            // Create a map of events by ID for quick lookup
+            const eventsMap = {};
+            if (includedEvents) {
+                includedEvents.forEach(event => {
+                    eventsMap[event.id] = event;
+                });
+            }
+
+            // Filter out birthdays
+            const filteredInstances = instances.filter(instance => {
+                const eventId = instance.relationships?.event?.data?.id;
+                const event = eventsMap[eventId];
+                const eventName = event?.attributes?.name || '';
+                
+                // Exclude if name contains "birthday" (case insensitive)
+                return !eventName.toLowerCase().includes('birthday');
+            });
+
+            if (filteredInstances.length === 0) {
+                container.innerHTML = '<div class="no-events">No upcoming events (birthdays excluded)</div>';
+                return;
+            }
+
+            container.innerHTML = filteredInstances.map(instance => {
+                const startDate = new Date(instance.attributes.starts_at);
+                const month = startDate.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+                const day = startDate.getDate();
+                
+                // Get the event details from included data
+                const eventId = instance.relationships?.event?.data?.id;
+                const event = eventsMap[eventId];
+                
+                const title = event?.attributes?.name || 'Untitled Event';
+                let description = event?.attributes?.summary || instance.attributes.location || 'Event details coming soon';
+                
+                // Only show first sentence
+                const firstSentence = description.split(/[.!?]/)[0];
+                description = firstSentence ? firstSentence.trim() + (firstSentence.match(/[.!?]/) ? '' : '.') : description;
+
+                return `
+                    <div class="event-card">
+                        <div class="date-box">
+                            <div class="date-month">${month}</div>
+                            <div class="date-day">${day}</div>
+                        </div>
+                        <div class="event-details">
+                            <div class="event-title">${title}</div>
+                            <div class="event-description">${description}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Fetch events on page load
+        fetchEvents();
+
+        // Auto-refresh every 15 minutes (900000 ms)
+        setInterval(fetchEvents, 900000);
+    </script>
+</body>
+</html>
